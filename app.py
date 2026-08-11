@@ -54,7 +54,7 @@ def generate_question_paper(state: PaperState):
     """
     
     if state.get("board_format"):
-        prompt_text += "\n    - Structure: Strictly follow official Board Exam Format (e.g., proper sections, choice of questions, instructions at the top)."
+        prompt_text += "\n    - Structure: Strictly follow the official Haryana Board (HBSE) Exam Format (e.g., proper sections, choice of questions, instructions at the top)."
     
     if state.get("is_ncert"):
         prompt_text += f"\n    - Syllabus/Curriculum: Strictly follow NCERT guidelines."
@@ -240,9 +240,9 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-comments = st.text_area("Optional Comments/Specific Instructions", placeholder="e.g., Make the questions high difficulty, focus on application-based concepts...")
+board_format = st.checkbox("Use Haryana Board Format (HBSE)")
 
-board_format = st.checkbox("Use Board Exam Format (Applies standard structure instead of custom format)")
+comments = st.text_area("Optional Comments/Specific Instructions", placeholder="e.g., Make the questions high difficulty, focus on application-based concepts...")
 
 st.markdown("---")
 submit_button = st.button("Generate Question Paper")
