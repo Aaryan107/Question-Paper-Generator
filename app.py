@@ -6,6 +6,8 @@ import io
 import re
 import google.generativeai as genai
 from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -19,12 +21,16 @@ class PaperState(TypedDict):
     marks: int
     subject: str
     grade_class: str
+    school_name: str
+    session: str
+    exam_time: str
     board_format: bool
     is_ncert: bool
     ncert_chapters: str
     comments: str
     file_data: list  # Store base64 encoded files with mime types
     generated_paper: str
+    generated_answer_key: str
 
 # ==========================================
 # 2. Define Graph Nodes
@@ -106,13 +112,50 @@ def generate_question_paper(state: PaperState):
         
     return {"generated_paper": text_content}
 
+def generate_answer_key(state: PaperState):
+    """Node that calls Gemini to generate the answer key for the generated paper."""
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-3.6-flash", 
+        api_key=state["api_key"]
+    )
+    
+    prompt_text = f"""
+    You are an expert teacher. You just created a question paper for {state['subject']} (Class: {state['grade_class']}).
+    Here is the question paper:
+    
+    {state['generated_paper']}
+    
+    Please generate a highly detailed answer key and marking scheme for the above question paper.
+    Format the output clearly.
+    """
+    
+    message = HumanMessage(content=[{"type": "text", "text": prompt_text}])
+    response = llm.invoke([message])
+    
+    content = response.content
+    if isinstance(content, list):
+        text_parts = []
+        for item in content:
+            if isinstance(item, dict) and "text" in item:
+                text_parts.append(item["text"])
+            elif isinstance(item, str):
+                text_parts.append(item)
+        text_content = "\n".join(text_parts)
+    else:
+        text_content = str(content)
+        
+    return {"generated_answer_key": text_content}
+
 # ==========================================
 # 3. Build the Workflow Graph
 # ==========================================
 workflow = StateGraph(PaperState)
 workflow.add_node("generator", generate_question_paper)
+workflow.add_node("answer_key_generator", generate_answer_key)
+
 workflow.set_entry_point("generator")
-workflow.add_edge("generator", END)
+workflow.add_edge("generator", "answer_key_generator")
+workflow.add_edge("answer_key_generator", END)
 app_graph = workflow.compile()
 
 # ==========================================
@@ -127,6 +170,17 @@ with st.sidebar:
     user_api_key = st.text_input("Enter your Google Gemini API Key:", type="password")
     st.caption("Get your key from [Google AI Studio](https://aistudio.google.com/).")
 
+# Institution Details
+st.subheader("Institution Details")
+col_s1, col_s2, col_s3 = st.columns(3)
+with col_s1:
+    school_name = st.text_input("School Name", placeholder="e.g. ABC Public School")
+with col_s2:
+    session_year = st.selectbox("Session", ["24-25", "25-26", "26-27", "27-28"])
+with col_s3:
+    exam_time = st.selectbox("Time Allowed", ["1 Hour", "1.5 Hours", "2 Hours", "2.5 Hours", "3 Hours"])
+
+st.markdown("---")
 # Main Content
 col1, col2, col3 = st.columns(3)
 
@@ -137,11 +191,7 @@ with col2:
 with col3:
     marks = st.number_input("Total Marks", min_value=1, max_value=200, value=50)
     
-col_options1, col_options2 = st.columns(2)
-with col_options1:
-    board_format = st.checkbox("Use Board Exam Format")
-with col_options2:
-    is_ncert = st.checkbox("Strictly follow NCERT guidelines")
+is_ncert = st.checkbox("Strictly follow NCERT guidelines")
 
 ncert_chapters = ""
 if is_ncert:
@@ -155,6 +205,9 @@ uploaded_files = st.file_uploader(
 
 comments = st.text_area("Optional Comments/Specific Instructions", placeholder="e.g., Make the questions high difficulty, focus on application-based concepts...")
 
+board_format = st.checkbox("Use Board Exam Format (Applies standard structure instead of custom format)")
+
+st.markdown("---")
 submit_button = st.button("Generate Question Paper")
 
 # ==========================================
@@ -197,6 +250,9 @@ if submit_button:
                 "marks": marks,
                 "subject": subject,
                 "grade_class": grade_class,
+                "school_name": school_name,
+                "session": session_year,
+                "exam_time": exam_time,
                 "board_format": board_format,
                 "is_ncert": is_ncert,
                 "ncert_chapters": ncert_chapters,
@@ -213,8 +269,30 @@ if submit_button:
                 st.markdown(result["generated_paper"])
                 
                 # Create a Word Document from the Markdown
-                def create_docx(text):
+                def create_docx(text, state_data):
                     doc = Document()
+                    
+                    # Add Header Information
+                    if state_data.get("school_name"):
+                        p = doc.add_paragraph()
+                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        run = p.add_run(state_data["school_name"])
+                        run.bold = True
+                        run.font.size = Pt(16)
+                    
+                    if state_data.get("session"):
+                        p = doc.add_paragraph()
+                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        p.add_run(f"Session {state_data['session']}")
+                        
+                    p = doc.add_paragraph()
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    header_text = f"Class: {state_data['grade_class']} | Subject: {state_data['subject']} | Time: {state_data['exam_time']} | Max Marks: {state_data['marks']}"
+                    run = p.add_run(header_text)
+                    run.bold = True
+                    
+                    doc.add_paragraph("-" * 50)
+                    
                     for line in text.split('\n'):
                         line = line.strip()
                         if not line:
@@ -245,14 +323,24 @@ if submit_button:
                     buffer.seek(0)
                     return buffer
 
-                docx_buffer = create_docx(result["generated_paper"])
+                paper_docx_buffer = create_docx(result["generated_paper"], initial_state)
+                answer_key_docx_buffer = create_docx(result["generated_answer_key"], initial_state)
                 
-                # Add a download button
-                st.download_button(
-                    label="Download Paper as Word (.docx)",
-                    data=docx_buffer,
-                    file_name=f"{subject}_paper.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
+                # Add download buttons
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    st.download_button(
+                        label="Download Paper as Word (.docx)",
+                        data=paper_docx_buffer,
+                        file_name=f"{subject}_paper.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                with col_btn2:
+                    st.download_button(
+                        label="Download Answer Key (.docx)",
+                        data=answer_key_docx_buffer,
+                        file_name=f"ANSWER KEY {grade_class} {subject}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
             except Exception as e:
                 st.error(f"An error occurred: {e}")
