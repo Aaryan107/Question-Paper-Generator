@@ -199,9 +199,9 @@ col_s1, col_s2, col_s3 = st.columns(3)
 with col_s1:
     school_name = st.text_input("School Name", value="Neha Public School",placeholder="e.g. ABC Public School")
 with col_s2:
-    session_year = st.selectbox("Session", ["24-25", "25-26", "26-27", "27-28"])
+    session_year = st.selectbox("Session", ["24-25", "25-26", "26-27", "27-28"], index=2)
 with col_s3:
-    exam_time = st.selectbox("Time Allowed", ["1 Hour", "1.5 Hours", "2 Hours", "2.5 Hours", "3 Hours"])
+    exam_time = st.selectbox("Time Allowed", ["1 Hour", "1.5 Hours", "2 Hours", "2.5 Hours", "3 Hours"], index=3)
 
 st.markdown("---")
 # Main Content
