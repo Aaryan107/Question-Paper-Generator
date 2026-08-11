@@ -334,31 +334,12 @@ with tab1:
                         
                         doc.add_paragraph("-" * 50)
                         
-                        for line in text.split('\n'):
-                            line = line.strip()
-                            if not line:
-                                continue
-                                
-                            # Handle simple Markdown Headings
-                            if line.startswith('# '):
-                                doc.add_heading(line[2:], level=1)
-                            elif line.startswith('## '):
-                                doc.add_heading(line[3:], level=2)
-                            elif line.startswith('### '):
-                                doc.add_heading(line[4:], level=3)
-                            elif line.startswith('#### '):
-                                doc.add_heading(line[5:], level=4)
-                            else:
-                                p = doc.add_paragraph()
-                                # Basic bold parsing for **text**
-                                parts = re.split(r'(\*\*.*?\*\*)', line)
-                                for part in parts:
-                                    if part.startswith('**') and part.endswith('**'):
-                                        run = p.add_run(part[2:-2])
-                                        run.bold = True
-                                    else:
-                                        p.add_run(part)
+                        import markdown
+                        from htmldocx import HtmlToDocx
                         
+                        html_content = markdown.markdown(text, extensions=['tables', 'fenced_code'])
+                        parser = HtmlToDocx()
+                        parser.add_html_to_document(html_content, doc)
                         buffer = io.BytesIO()
                         doc.save(buffer)
                         buffer.seek(0)
