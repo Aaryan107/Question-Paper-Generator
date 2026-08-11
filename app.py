@@ -19,7 +19,9 @@ class PaperState(TypedDict):
     marks: int
     subject: str
     grade_class: str
-    q_type: str
+    board_format: bool
+    is_ncert: bool
+    ncert_chapters: str
     comments: str
     file_data: list  # Store base64 encoded files with mime types
     generated_paper: str
@@ -42,7 +44,18 @@ def generate_question_paper(state: PaperState):
     - Subject: {state['subject']}
     - Class/Grade: {state['grade_class']}
     - Total Marks: {state['marks']}
-    - Question Type: {state['q_type']}
+    - Question Type: Mixed / Balanced (include MCQs, short answers, and long answers)
+    """
+    
+    if state.get("board_format"):
+        prompt_text += "\n    - Structure: Strictly follow official Board Exam Format (e.g., proper sections, choice of questions, instructions at the top)."
+    
+    if state.get("is_ncert"):
+        prompt_text += f"\n    - Syllabus/Curriculum: Strictly follow NCERT guidelines."
+        if state.get("ncert_chapters"):
+            prompt_text += f" Focus on the following chapters: {state['ncert_chapters']}"
+            
+    prompt_text += f"""
     - Additional Instructions: {state['comments']}
     
     Format the output clearly with sections, question numbers, and marks per question.
@@ -114,31 +127,35 @@ with st.sidebar:
     user_api_key = st.text_input("Enter your Google Gemini API Key:", type="password")
     st.caption("Get your key from [Google AI Studio](https://aistudio.google.com/).")
 
-# Main Form
-with st.form("paper_form"):
-    col1, col2, col3 = st.columns(3)
+# Main Content
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    subject = st.text_input("Subject (e.g., Physics, History)")
+with col2:
+    grade_class = st.text_input("Class/Grade (e.g., 10th, University)")
+with col3:
+    marks = st.number_input("Total Marks", min_value=1, max_value=200, value=50)
     
-    with col1:
-        subject = st.text_input("Subject (e.g., Physics, History)")
-    with col2:
-        grade_class = st.text_input("Class/Grade (e.g., 10th, University)")
-    with col3:
-        marks = st.number_input("Total Marks", min_value=1, max_value=200, value=50)
-        
-    q_type = st.selectbox(
-        "Question Type Format", 
-        ["All MCQ", "All One Word", "Mixed / Balanced"]
-    )
-    
-    uploaded_files = st.file_uploader(
-        "Upload Source Material (Images & PDFs)", 
-        type=["png", "jpg", "jpeg", "pdf"], 
-        accept_multiple_files=True
-    )
-    
-    comments = st.text_area("Optional Comments/Specific Instructions", placeholder="e.g., Make the questions high difficulty, focus on application-based concepts...")
-    
-    submit_button = st.form_submit_button("Generate Question Paper")
+col_options1, col_options2 = st.columns(2)
+with col_options1:
+    board_format = st.checkbox("Use Board Exam Format")
+with col_options2:
+    is_ncert = st.checkbox("Strictly follow NCERT guidelines")
+
+ncert_chapters = ""
+if is_ncert:
+    ncert_chapters = st.text_input("Enter Chapter Numbers (e.g., 1, 3, 4)")
+
+uploaded_files = st.file_uploader(
+    "Upload Source Material (Images & PDFs)", 
+    type=["png", "jpg", "jpeg", "pdf"], 
+    accept_multiple_files=True
+)
+
+comments = st.text_area("Optional Comments/Specific Instructions", placeholder="e.g., Make the questions high difficulty, focus on application-based concepts...")
+
+submit_button = st.button("Generate Question Paper")
 
 # ==========================================
 # 5. Execution Logic
@@ -180,7 +197,9 @@ if submit_button:
                 "marks": marks,
                 "subject": subject,
                 "grade_class": grade_class,
-                "q_type": q_type,
+                "board_format": board_format,
+                "is_ncert": is_ncert,
+                "ncert_chapters": ncert_chapters,
                 "comments": comments,
                 "file_data": file_data_list
             }
