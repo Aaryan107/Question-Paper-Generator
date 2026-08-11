@@ -2,7 +2,10 @@ import streamlit as st
 import base64
 import tempfile
 import os
+import io
+import re
 import google.generativeai as genai
+from docx import Document
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -191,10 +194,6 @@ if submit_button:
                 st.markdown(result["generated_paper"])
                 
                 # Create a Word Document from the Markdown
-                from docx import Document
-                import io
-                import re
-                
                 def create_docx(text):
                     doc = Document()
                     for line in text.split('\n'):
