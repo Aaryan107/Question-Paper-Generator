@@ -159,6 +159,29 @@ workflow.add_edge("answer_key_generator", END)
 app_graph = workflow.compile()
 
 # ==========================================
+# Helper Function
+# ==========================================
+@st.cache_data(show_spinner=False)
+def fetch_ncert_chapters(api_key, subject, grade_class):
+    if not api_key or not subject or not grade_class:
+        return []
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-3.6-flash")
+        prompt = f"List all the exact NCERT chapters for Class {grade_class} {subject}. Return ONLY a raw JSON array of strings in the format ['1. Chapter Name', '2. Chapter Name']. Do not include any markdown formatting, backticks, or code blocks. Just the JSON array."
+        response = model.generate_content(prompt)
+        import json
+        text = response.text.strip()
+        if text.startswith('```json'):
+            text = text[7:-3].strip()
+        elif text.startswith('```'):
+            text = text[3:-3].strip()
+        chapters = json.loads(text)
+        return chapters
+    except Exception as e:
+        return []
+
+# ==========================================
 # 4. Streamlit UI
 # ==========================================
 st.set_page_config(page_title="AI Question Paper Generator", layout="wide")
@@ -174,7 +197,7 @@ with st.sidebar:
 st.subheader("Institution Details")
 col_s1, col_s2, col_s3 = st.columns(3)
 with col_s1:
-    school_name = st.text_input("School Name", placeholder="e.g. ABC Public School")
+    school_name = st.text_input("School Name", value="Neha Public School",placeholder="e.g. ABC Public School")
 with col_s2:
     session_year = st.selectbox("Session", ["24-25", "25-26", "26-27", "27-28"])
 with col_s3:
@@ -191,11 +214,25 @@ with col2:
 with col3:
     marks = st.number_input("Total Marks", min_value=1, max_value=200, value=50)
     
-is_ncert = st.checkbox("Strictly follow NCERT guidelines")
+is_ncert = st.checkbox("Make Paper From Ncert syllabus")
 
 ncert_chapters = ""
 if is_ncert:
-    ncert_chapters = st.text_input("Enter Chapter Numbers (e.g., 1, 3, 4)")
+    if not user_api_key:
+        st.warning("Please enter your API Key in the sidebar to fetch chapters automatically.")
+        ncert_chapters = st.text_input("Enter Chapter Numbers (e.g., 1, 3, 4)")
+    elif not subject or not grade_class:
+        st.warning("Please enter the Subject and Class above to fetch chapters automatically.")
+        ncert_chapters = st.text_input("Enter Chapter Numbers (e.g., 1, 3, 4)")
+    else:
+        with st.spinner("Fetching NCERT syllabus..."):
+            chapters_list = fetch_ncert_chapters(user_api_key, subject, grade_class)
+        
+        if chapters_list:
+            selected_chapters = st.multiselect("Select Chapters for the paper", chapters_list)
+            ncert_chapters = ", ".join(selected_chapters)
+        else:
+            ncert_chapters = st.text_input("Enter Chapter Numbers manually (unable to auto-fetch)")
 
 uploaded_files = st.file_uploader(
     "Upload Source Material (Images & PDFs)", 
