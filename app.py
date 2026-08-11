@@ -6,6 +6,8 @@ import io
 import re
 import google.generativeai as genai
 from docx import Document
+import datetime
+import json
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from typing import TypedDict
@@ -193,191 +195,266 @@ with st.sidebar:
     user_api_key = st.text_input("Enter your Google Gemini API Key:", type="password")
     st.caption("Get your key from [Google AI Studio](https://aistudio.google.com/).")
 
-# Institution Details
-st.subheader("Institution Details")
-col_s1, col_s2, col_s3 = st.columns(3)
-with col_s1:
-    school_name = st.text_input("School Name", value="Neha Public School",placeholder="e.g. ABC Public School")
-with col_s2:
-    session_year = st.selectbox("Session", ["24-25", "25-26", "26-27", "27-28"], index=2)
-with col_s3:
-    exam_time = st.selectbox("Time Allowed", ["1 Hour", "1.5 Hours", "2 Hours", "2.5 Hours", "3 Hours"], index=3)
-
-st.markdown("---")
-# Main Content
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    subject = st.text_input("Subject (e.g., Physics, History)")
-with col2:
-    grade_class = st.text_input("Class/Grade (e.g., 10th, University)")
-with col3:
-    marks = st.number_input("Total Marks", min_value=1, max_value=200, value=50)
+tab1, tab2 = st.tabs(["Generate Paper", "Past Papers Archive"])
+with tab1:
+    # Institution Details
+    st.subheader("Institution Details")
+    col_s1, col_s2, col_s3 = st.columns(3)
+    with col_s1:
+        school_name = st.text_input("School Name", value="Neha Public School",placeholder="e.g. ABC Public School")
+    with col_s2:
+        session_year = st.selectbox("Session", ["24-25", "25-26", "26-27", "27-28"], index=2)
+    with col_s3:
+        exam_time = st.selectbox("Time Allowed", ["1 Hour", "1.5 Hours", "2 Hours", "2.5 Hours", "3 Hours"], index=3)
     
-is_ncert = st.checkbox("Make Paper From Ncert syllabus")
-
-ncert_chapters = ""
-if is_ncert:
-    if not user_api_key:
-        st.warning("Please enter your API Key in the sidebar to fetch chapters automatically.")
-        ncert_chapters = st.text_input("Enter Chapter Numbers (e.g., 1, 3, 4)")
-    elif not subject or not grade_class:
-        st.warning("Please enter the Subject and Class above to fetch chapters automatically.")
-        ncert_chapters = st.text_input("Enter Chapter Numbers (e.g., 1, 3, 4)")
-    else:
-        with st.spinner("Fetching NCERT syllabus..."):
-            chapters_list = fetch_ncert_chapters(user_api_key, subject, grade_class)
+    st.markdown("---")
+    # Main Content
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        subject = st.text_input("Subject (e.g., Physics, History)")
+    with col2:
+        grade_class = st.text_input("Class/Grade (e.g., 10th, University)")
+    with col3:
+        marks = st.number_input("Total Marks", min_value=1, max_value=200, value=50)
         
-        if chapters_list:
-            selected_chapters = st.multiselect("Select Chapters for the paper", chapters_list)
-            ncert_chapters = ", ".join(selected_chapters)
+    is_ncert = st.checkbox("Make Paper From Ncert syllabus")
+    
+    ncert_chapters = ""
+    if is_ncert:
+        if not user_api_key:
+            st.warning("Please enter your API Key in the sidebar to fetch chapters automatically.")
+            ncert_chapters = st.text_input("Enter Chapter Numbers (e.g., 1, 3, 4)")
+        elif not subject or not grade_class:
+            st.warning("Please enter the Subject and Class above to fetch chapters automatically.")
+            ncert_chapters = st.text_input("Enter Chapter Numbers (e.g., 1, 3, 4)")
         else:
-            ncert_chapters = st.text_input("Enter Chapter Numbers manually (unable to auto-fetch)")
-
-uploaded_files = st.file_uploader(
-    "Upload Source Material (Images & PDFs)", 
-    type=["png", "jpg", "jpeg", "pdf"], 
-    accept_multiple_files=True
-)
-
-board_format = st.checkbox("Use Haryana Board Format (HBSE)")
-
-comments = st.text_area("Optional Comments/Specific Instructions", placeholder="e.g., Make the questions high difficulty, focus on application-based concepts...")
-
-st.markdown("---")
-submit_button = st.button("Generate Question Paper")
-
-# ==========================================
-# 5. Execution Logic
-# ==========================================
-if submit_button:
-    if not user_api_key:
-        st.error("Please enter your Gemini API Key in the sidebar.")
-    elif not subject or not grade_class:
-        st.error("Please fill in the Subject and Class fields.")
-    else:
-        with st.spinner("Analyzing context and generating paper..."):
+            with st.spinner("Fetching NCERT syllabus..."):
+                chapters_list = fetch_ncert_chapters(user_api_key, subject, grade_class)
             
-            # Convert uploaded files for the API (PDFs need File API)
-            file_data_list = []
-            if uploaded_files:
-                genai.configure(api_key=user_api_key)
-                for file in uploaded_files:
-                    if file.type == "application/pdf":
-                        # Upload PDF to Google GenAI File API
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                            tmp.write(file.read())
-                            tmp_path = tmp.name
-                        
-                        uploaded_gfile = genai.upload_file(tmp_path, mime_type="application/pdf")
-                        file_data_list.append({
-                            "mime_type": file.type,
-                            "file_uri": uploaded_gfile.uri
-                        })
-                        os.remove(tmp_path)
-                    else:
-                        file_data_list.append({
-                            "mime_type": file.type,
-                            "data": base64.b64encode(file.read()).decode("utf-8")
-                        })
-            
-            # Prepare inputs for LangGraph
-            initial_state = {
-                "api_key": user_api_key,
-                "marks": marks,
-                "subject": subject,
-                "grade_class": grade_class,
-                "school_name": school_name,
-                "session": session_year,
-                "exam_time": exam_time,
-                "board_format": board_format,
-                "is_ncert": is_ncert,
-                "ncert_chapters": ncert_chapters,
-                "comments": comments,
-                "file_data": file_data_list
-            }
-            
-            # Run the graph
-            try:
-                result = app_graph.invoke(initial_state)
+            if chapters_list:
+                selected_chapters = st.multiselect("Select Chapters for the paper", chapters_list)
+                ncert_chapters = ", ".join(selected_chapters)
+            else:
+                ncert_chapters = st.text_input("Enter Chapter Numbers manually (unable to auto-fetch)")
+    
+    uploaded_files = st.file_uploader(
+        "Upload Source Material (Images & PDFs)", 
+        type=["png", "jpg", "jpeg", "pdf"], 
+        accept_multiple_files=True
+    )
+    
+    board_format = st.checkbox("Use Haryana Board Format (HBSE)")
+    
+    comments = st.text_area("Optional Comments/Specific Instructions", placeholder="e.g., Make the questions high difficulty, focus on application-based concepts...")
+    
+    st.markdown("---")
+    submit_button = st.button("Generate Question Paper")
+    
+    # ==========================================
+    # 5. Execution Logic
+    # ==========================================
+    if submit_button:
+        if not user_api_key:
+            st.error("Please enter your Gemini API Key in the sidebar.")
+        elif not subject or not grade_class:
+            st.error("Please fill in the Subject and Class fields.")
+        else:
+            with st.spinner("Analyzing context and generating paper..."):
                 
-                st.success("Paper Generated Successfully!")
-                st.markdown("---")
-                st.markdown(result["generated_paper"])
-                
-                # Create a Word Document from the Markdown
-                def create_docx(text, state_data):
-                    doc = Document()
-                    
-                    # Add Header Information
-                    if state_data.get("school_name"):
-                        p = doc.add_paragraph()
-                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                        run = p.add_run(state_data["school_name"])
-                        run.bold = True
-                        run.font.size = Pt(16)
-                    
-                    if state_data.get("session"):
-                        p = doc.add_paragraph()
-                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                        p.add_run(f"Session {state_data['session']}")
-                        
-                    p = doc.add_paragraph()
-                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    header_text = f"Class: {state_data['grade_class']} | Subject: {state_data['subject']} | Time: {state_data['exam_time']} | Max Marks: {state_data['marks']}"
-                    run = p.add_run(header_text)
-                    run.bold = True
-                    
-                    doc.add_paragraph("-" * 50)
-                    
-                    for line in text.split('\n'):
-                        line = line.strip()
-                        if not line:
-                            continue
+                # Convert uploaded files for the API (PDFs need File API)
+                file_data_list = []
+                if uploaded_files:
+                    genai.configure(api_key=user_api_key)
+                    for file in uploaded_files:
+                        if file.type == "application/pdf":
+                            # Upload PDF to Google GenAI File API
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                                tmp.write(file.read())
+                                tmp_path = tmp.name
                             
-                        # Handle simple Markdown Headings
-                        if line.startswith('# '):
-                            doc.add_heading(line[2:], level=1)
-                        elif line.startswith('## '):
-                            doc.add_heading(line[3:], level=2)
-                        elif line.startswith('### '):
-                            doc.add_heading(line[4:], level=3)
-                        elif line.startswith('#### '):
-                            doc.add_heading(line[5:], level=4)
+                            uploaded_gfile = genai.upload_file(tmp_path, mime_type="application/pdf")
+                            file_data_list.append({
+                                "mime_type": file.type,
+                                "file_uri": uploaded_gfile.uri
+                            })
+                            os.remove(tmp_path)
                         else:
-                            p = doc.add_paragraph()
-                            # Basic bold parsing for **text**
-                            parts = re.split(r'(\*\*.*?\*\*)', line)
-                            for part in parts:
-                                if part.startswith('**') and part.endswith('**'):
-                                    run = p.add_run(part[2:-2])
-                                    run.bold = True
-                                else:
-                                    p.add_run(part)
-                    
-                    buffer = io.BytesIO()
-                    doc.save(buffer)
-                    buffer.seek(0)
-                    return buffer
-
-                paper_docx_buffer = create_docx(result["generated_paper"], initial_state)
-                answer_key_docx_buffer = create_docx(result["generated_answer_key"], initial_state)
+                            file_data_list.append({
+                                "mime_type": file.type,
+                                "data": base64.b64encode(file.read()).decode("utf-8")
+                            })
                 
-                # Add download buttons
-                col_btn1, col_btn2 = st.columns(2)
-                with col_btn1:
-                    st.download_button(
-                        label="Download Paper as Word (.docx)",
-                        data=paper_docx_buffer,
-                        file_name=f"{subject}_paper.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
-                with col_btn2:
-                    st.download_button(
-                        label="Download Answer Key (.docx)",
-                        data=answer_key_docx_buffer,
-                        file_name=f"ANSWER KEY {grade_class} {subject}.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
-            except Exception as e:
-                st.error(f"An error occurred: {e}")
+                # Prepare inputs for LangGraph
+                initial_state = {
+                    "api_key": user_api_key,
+                    "marks": marks,
+                    "subject": subject,
+                    "grade_class": grade_class,
+                    "school_name": school_name,
+                    "session": session_year,
+                    "exam_time": exam_time,
+                    "board_format": board_format,
+                    "is_ncert": is_ncert,
+                    "ncert_chapters": ncert_chapters,
+                    "comments": comments,
+                    "file_data": file_data_list
+                }
+                
+                # Run the graph
+                try:
+                    result = app_graph.invoke(initial_state)
+                    
+                    st.success("Paper Generated Successfully!")
+                    st.markdown("---")
+                    st.markdown(result["generated_paper"])
+                    
+                    # Create a Word Document from the Markdown
+                    def create_docx(text, state_data):
+                        doc = Document()
+                        
+                        # Add Header Information
+                        if state_data.get("school_name"):
+                            p = doc.add_paragraph()
+                            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            run = p.add_run(state_data["school_name"])
+                            run.bold = True
+                            run.font.size = Pt(16)
+                        
+                        if state_data.get("session"):
+                            p = doc.add_paragraph()
+                            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            p.add_run(f"Session {state_data['session']}")
+                            
+                        p = doc.add_paragraph()
+                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        header_text = f"Class: {state_data['grade_class']} | Subject: {state_data['subject']} | Time: {state_data['exam_time']} | Max Marks: {state_data['marks']}"
+                        run = p.add_run(header_text)
+                        run.bold = True
+                        
+                        doc.add_paragraph("-" * 50)
+                        
+                        for line in text.split('\n'):
+                            line = line.strip()
+                            if not line:
+                                continue
+                                
+                            # Handle simple Markdown Headings
+                            if line.startswith('# '):
+                                doc.add_heading(line[2:], level=1)
+                            elif line.startswith('## '):
+                                doc.add_heading(line[3:], level=2)
+                            elif line.startswith('### '):
+                                doc.add_heading(line[4:], level=3)
+                            elif line.startswith('#### '):
+                                doc.add_heading(line[5:], level=4)
+                            else:
+                                p = doc.add_paragraph()
+                                # Basic bold parsing for **text**
+                                parts = re.split(r'(\*\*.*?\*\*)', line)
+                                for part in parts:
+                                    if part.startswith('**') and part.endswith('**'):
+                                        run = p.add_run(part[2:-2])
+                                        run.bold = True
+                                    else:
+                                        p.add_run(part)
+                        
+                        buffer = io.BytesIO()
+                        doc.save(buffer)
+                        buffer.seek(0)
+                        return buffer
+    
+                    paper_docx_buffer = create_docx(result["generated_paper"], initial_state)
+                    answer_key_docx_buffer = create_docx(result["generated_answer_key"], initial_state)
+                    
+                    # Save to archives
+                    os.makedirs("archives", exist_ok=True)
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    paper_filename = f"archives/paper_{timestamp}.docx"
+                    answer_filename = f"archives/answer_{timestamp}.docx"
+                    
+                    with open(paper_filename, "wb") as f:
+                        f.write(paper_docx_buffer.getvalue())
+                    with open(answer_filename, "wb") as f:
+                        f.write(answer_key_docx_buffer.getvalue())
+                        
+                    # Update history.json
+                    history_file = "archives/history.json"
+                    if os.path.exists(history_file):
+                        with open(history_file, "r") as f:
+                            history = json.load(f)
+                    else:
+                        history = []
+                        
+                    history.append({
+                        "id": timestamp,
+                        "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "class": grade_class,
+                        "subject": subject,
+                        "marks": marks,
+                        "paper_file": paper_filename,
+                        "answer_file": answer_filename
+                    })
+                    
+                    with open(history_file, "w") as f:
+                        json.dump(history, f, indent=4)
+                    
+                    # Add download buttons
+                    col_btn1, col_btn2 = st.columns(2)
+                    with col_btn1:
+                        st.download_button(
+                            label="Download Paper as Word (.docx)",
+                            data=paper_docx_buffer,
+                            file_name=f"{subject}_paper.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
+                    with col_btn2:
+                        st.download_button(
+                            label="Download Answer Key (.docx)",
+                            data=answer_key_docx_buffer,
+                            file_name=f"ANSWER KEY {grade_class} {subject}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
+
+with tab2:
+    st.header("Past Papers Archive")
+    history_file = "archives/history.json"
+    
+    if os.path.exists(history_file):
+        with open(history_file, "r") as f:
+            history = json.load(f)
+            
+        if not history:
+            st.info("No past papers found.")
+        else:
+            # Group by class then subject
+            grouped = {}
+            for entry in history:
+                c = entry.get("class", "Unknown")
+                s = entry.get("subject", "Unknown")
+                if c not in grouped:
+                    grouped[c] = {}
+                if s not in grouped[c]:
+                    grouped[c][s] = []
+                grouped[c][s].append(entry)
+                
+            for c in sorted(grouped.keys()):
+                st.subheader(f"Class: {c}")
+                for s in sorted(grouped[c].keys()):
+                    with st.expander(f"Subject: {s} ({len(grouped[c][s])} papers)"):
+                        for entry in reversed(grouped[c][s]):
+                            st.markdown(f"**Date:** {entry.get('date')} | **Marks:** {entry.get('marks')}")
+                            
+                            col_dl1, col_dl2 = st.columns(2)
+                            try:
+                                with open(entry['paper_file'], "rb") as pf:
+                                    col_dl1.download_button("Download Paper", data=pf, file_name=f"{s}_paper_{entry['id']}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"p_{entry['id']}")
+                                with open(entry['answer_file'], "rb") as af:
+                                    col_dl2.download_button("Download Answer Key", data=af, file_name=f"ANSWER_KEY_{c}_{s}_{entry['id']}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"a_{entry['id']}")
+                            except FileNotFoundError:
+                                st.error("Files for this entry are missing from storage.")
+                            st.divider()
+    else:
+        st.info("No past papers found yet. Generate a paper to start your archive!")
